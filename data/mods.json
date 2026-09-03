@@ -1,23 +1,5 @@
 [
   {
-    "prettyName": "Audi RS5 2020 LMC",
-    "fileName": "audi_RS5_2020_LMC.rar",
-    "category": "cars",
-    "size": "68 MB",
-    "date": "2025-02-14",
-    "image": "",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/audi_RS5_2020_LMC.rar"
-  },
-  {
-    "prettyName": "Blach Renault Clio 5",
-    "fileName": "blach_renault_clio_5.rar",
-    "category": "cars",
-    "size": "180 MB",
-    "date": "2025-01-22",
-    "image": "",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/blach_renault_clio_5.rar"
-  },
-  {
     "prettyName": "A45 Brabus V2",
     "fileName": "dzst_a45_brabus_v2.rar",
     "category": "cars",
@@ -34,6 +16,15 @@
     "date": "2025-03-19",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_AUDI_RS3_ZK._Performance.rar"
+  },
+  {
+    "prettyName": "Audi RS5 2020 LMC",
+    "fileName": "audi_RS5_2020_LMC.rar",
+    "category": "cars",
+    "size": "68 MB",
+    "date": "2025-02-14",
+    "image": "",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/audi_RS5_2020_LMC.rar"
   },
   {
     "prettyName": "Audi RS6 2022 ABT",
@@ -54,6 +45,15 @@
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_audi_S1_2013.rar"
   },
   {
+    "prettyName": "Blach Renault Clio 5",
+    "fileName": "blach_renault_clio_5.rar",
+    "category": "cars",
+    "size": "180 MB",
+    "date": "2025-01-22",
+    "image": "",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/blach_renault_clio_5.rar"
+  },
+  {
     "prettyName": "BMW M4 G82 ZK Performance",
     "fileName": "DZST_BMW_M4_G82_ZK_Performance.rar",
     "category": "cars",
@@ -61,6 +61,15 @@
     "date": "2025-02-27",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_BMW_M4_G82_ZK_Performance.rar"
+  },
+  {
+    "prettyName": "Dpc Renault Clio Rsi",
+    "fileName": "dpc_renault_clio_rsi.rar",
+    "category": "cars",
+    "size": "28 MB",
+    "date": "2026-09-03",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/dpc_renault_clio_rsi.rar",
+    "image": ""
   },
   {
     "prettyName": "Fiat Doblo 2025",
@@ -81,15 +90,6 @@
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_FIAT_TIPO_ZK._Performance.rar"
   },
   {
-    "prettyName": "Golf7.5 R400",
-    "fileName": "DZST_GOLF7.5_R400.rar",
-    "category": "cars",
-    "size": "290 MB",
-    "date": "2024-11-30",
-    "image": "",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_GOLF7.5_R400.rar"
-  },
-  {
     "prettyName": "Golf 7.5 R",
     "fileName": "dzst_golf_7.5_R.rar",
     "category": "cars",
@@ -106,6 +106,15 @@
     "date": "2024-09-14",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_Golf_r_2012.rar"
+  },
+  {
+    "prettyName": "Golf7.5 R400",
+    "fileName": "DZST_GOLF7.5_R400.rar",
+    "category": "cars",
+    "size": "290 MB",
+    "date": "2024-11-30",
+    "image": "",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_GOLF7.5_R400.rar"
   },
   {
     "prettyName": "Kia Picanto STi",
@@ -144,6 +153,15 @@
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/dzst_rs3_sedan_ABT_2020.rar"
   },
   {
+    "prettyName": "RVZ BMW M 1000 RR 2023",
+    "fileName": "rvz_bmw_m_1000_rr_2023.rar",
+    "category": "cars",
+    "size": "189 MB",
+    "date": "2025-04-11",
+    "image": "",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/rvz_bmw_m_1000_rr_2023.rar"
+  },
+  {
     "prettyName": "Seat Cupra 2016 V2",
     "fileName": "DZST_Seat_cupra_2016_v2.rar",
     "category": "cars",
@@ -160,15 +178,6 @@
     "date": "2024-10-03",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/dzst_seat_ibiza_stage1.rar"
-  },
-  {
-    "prettyName": "RVZ BMW M 1000 RR 2023",
-    "fileName": "rvz_bmw_m_1000_rr_2023.rar",
-    "category": "cars",
-    "size": "189 MB",
-    "date": "2025-04-11",
-    "image": "",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/rvz_bmw_m_1000_rr_2023.rar"
   },
   {
     "prettyName": "Squeeze M340i",
