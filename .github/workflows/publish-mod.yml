@@ -129,47 +129,122 @@ jobs:
           PY
 
       # ─────────────────────────── 2. preview extract ───────────────────────────
+      # Robust extraction: parse 7z listing with Python, search with broad
+      # patterns, fall back to "any image" if no preview.* is found.
       - name: Extract preview candidate
         id: prev
         env:
           FILE_NAME: ${{ inputs.file_name }}
         run: |
           set -euo pipefail
-          mkdir -p _extract
+          mkdir -p _extract previews
+          python - <<'PY'
+          import subprocess, os, re, sys
+
+          file_name = os.environ["FILE_NAME"]
+
           # List archive contents. 7z handles .rar/.zip/.7z uniformly.
-          7z l "$FILE_NAME" > _listing.txt 2>&1 || true
-          # Priority: ui/preview.* → skins/*/preview.* → ui_car/preview.* → shallowest preview.*
-          # 7z l output lists paths in column 6+ (space-separated). Use awk to grab the path column.
-          PREVIEW_PATH=""
-          for PATTERN in \
-            '^ui/preview\.' \
-            '^skins/[^/]+/preview\.' \
-            '^ui_car/preview\.' \
-            'preview\.'; do
-            HIT=$(awk '/^--/{p=!p; next} p {print $NF}' _listing.txt \
-                   | grep -iE "$PATTERN" \
-                   | head -1 || true)
-            if [ -n "$HIT" ]; then
-              PREVIEW_PATH="$HIT"
-              echo "::notice::Preview candidate: $PREVIEW_PATH (pattern: $PATTERN)"
-              break
-            fi
-          done
-          if [ -z "$PREVIEW_PATH" ]; then
-            echo "::notice::No preview.* found in archive — image will be empty."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Use -ba (bare output, no header/footer) for easier parsing.
+          result = subprocess.run(
+              ['7z', 'l', '-ba', file_name],
+              capture_output=True, text=True
+          )
+          listing = result.stdout
+          if not listing.strip():
+              # Fallback: try without -ba (some 7z versions)
+              result = subprocess.run(
+                  ['7z', 'l', file_name],
+                  capture_output=True, text=True
+              )
+              listing = result.stdout
+
+          # Parse the listing — collect all image file paths.
+          # 7z l -ba format: "YYYY-MM-DD HH:MM:SS attr size compressed name"
+          # The "name" field can contain spaces, so we split smartly.
+          candidates = []  # list of (depth, path)
+          for line in listing.splitlines():
+              line = line.rstrip()
+              if not line.strip(): continue
+              # Must start with a date
+              if not re.match(r'^\d{4}-\d{2}-\d{2}', line): continue
+              parts = line.split()
+              if len(parts) < 5: continue
+              # parts[0]=date, [1]=time, [2]=attr, [3]=size, [4]=compressed (or name)
+              # If parts[4] is all digits, it's the compressed size; else it's the name start
+              idx = 5 if parts[4].isdigit() and len(parts) > 5 else 4
+              path = ' '.join(parts[idx:]).strip()
+              if not path: continue
+              # Skip directories (they end with /)
+              if path.endswith('/'): continue
+              # Skip junk paths
+              lower = path.lower()
+              if '__macosx' in lower: continue
+              if '.ds_store' in lower: continue
+              if path.startswith('.'): continue
+              # Only image files
+              if not re.search(r'\.(jpg|jpeg|png|webp|bmp)$', lower): continue
+              depth = path.count('/')
+              candidates.append((depth, path))
+
+          if not candidates:
+              print("::notice::No image files found in archive — image will be empty.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("found=false\n")
+              sys.exit(0)
+
+          print(f"::notice::Found {len(candidates)} image file(s) in archive:")
+          for d, p in candidates[:10]:
+              print(f"  depth={d}  {p}")
+
+          # Priority matching (Assetto Corsa mod conventions):
+          #   1. ui/preview.* at any depth (most common — the in-game preview)
+          #   2. ui_car/preview.* at any depth (older AC format)
+          #   3. skins/<name>/preview.* at any depth (per-skin preview)
+          #   4. preview.* at any depth (root or shallowest)
+          #   5. ui/*.jpg/.png (any image in ui/ folder)
+          #   6. skins/<name>/*.jpg/.png (any image in a skin folder)
+          #   7. ui_car/* (any image in ui_car/ folder)
+          #   8. any image file (last resort — prefer shallowest)
+          def priority(path):
+              l = path.lower()
+              if re.search(r'(^|/)ui/preview\.', l):       return (1, path.count('/'))
+              if re.search(r'(^|/)ui_car/preview\.', l):   return (2, path.count('/'))
+              if re.search(r'(^|/)skins/[^/]+/preview\.', l): return (3, path.count('/'))
+              if re.search(r'(^|/)preview\.', l):          return (4, path.count('/'))
+              if re.search(r'(^|/)ui/[^/]+\.(jpg|jpeg|png|webp)$', l): return (5, path.count('/'))
+              if re.search(r'(^|/)skins/[^/]+/[^/]+\.(jpg|jpeg|png|webp)$', l): return (6, path.count('/'))
+              if re.search(r'(^|/)ui_car/[^/]+\.(jpg|jpeg|png|webp)$', l): return (7, path.count('/'))
+              return (8, path.count('/'))
+
+          candidates.sort(key=lambda c: priority(c[1]))
+          chosen = candidates[0][1]
+          pri, depth = priority(chosen)
+          print(f"::notice::Selected preview: {chosen} (priority={pri}, depth={depth})")
+
           # Extract ONLY that entry (7z extracts with full path under _extract).
-          7z x "$FILE_NAME" -o_extract "$PREVIEW_PATH" -y > /dev/null
-          EXTRACTED="_extract/$PREVIEW_PATH"
-          if [ ! -f "$EXTRACTED" ]; then
-            echo "::warning::Preview listed but not extractable: $PREVIEW_PATH"
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "path=$EXTRACTED" >> "$GITHUB_OUTPUT"
+          # Quote the path to handle spaces.
+          extract_result = subprocess.run(
+              ['7z', 'x', file_name, '-o_extract', chosen, '-y'],
+              capture_output=True, text=True
+          )
+          extracted_path = f"_extract/{chosen}"
+          if not os.path.exists(extracted_path):
+              # Try with forward-slash normalization (some 7z versions)
+              alt = extracted_path.replace('/', os.sep)
+              if os.path.exists(alt):
+                  extracted_path = alt
+              else:
+                  print(f"::warning::Listed but not extractable: {chosen}")
+                  print(f"  7z stderr: {extract_result.stderr[:500]}")
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write("found=false\n")
+                  sys.exit(0)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("found=true\n")
+              f.write(f"path={extracted_path}\n")
+          print(f"::notice::Extracted to: {extracted_path}")
+          PY
 
       - name: Convert preview to WebP (1280×720, ≤100 KB)
         id: webp
@@ -179,44 +254,75 @@ jobs:
           FILE_NAME: ${{ inputs.file_name }}
         run: |
           python - <<'PY'
-          import os, sys
+          import os, sys, traceback
           from PIL import Image
           src = os.environ["SRC"]
           file_name = os.environ["FILE_NAME"]
           out_path = f"previews/{file_name}.webp"
           os.makedirs("previews", exist_ok=True)
-          im = Image.open(src).convert("RGB")
-          # 16:9 cover crop then resize to 1280x720
-          target_ratio = 16 / 9
-          w, h = im.size
-          cur = w / h
-          if cur > target_ratio:
-              # too wide — crop sides
-              new_w = int(h * target_ratio)
-              left = (w - new_w) // 2
-              im = im.crop((left, 0, left + new_w, h))
-          else:
-              # too tall — crop top/bottom
-              new_h = int(w / target_ratio)
-              top = (h - new_h) // 2
-              im = im.crop((0, top, w, top + new_h))
-          im = im.resize((1280, 720), Image.LANCZOS)
-          # Try WebP first; lower quality until ≤100 KB
-          for q in (90, 80, 72, 65, 58, 50):
-              buf_path = f"previews/{file_name}.webp"
-              im.save(buf_path, "WEBP", quality=q, method=6)
-              if os.path.getsize(buf_path) <= 100 * 1024:
-                  print(f"webp ok q={q} size={os.path.getsize(buf_path)}B")
-                  break
-          else:
-              # JPEG fallback
-              jpg_path = f"previews/{file_name}.jpg"
-              im.save(jpg_path, "JPEG", quality=80, optimize=True)
-              # Remove the failed WebP attempt
-              if os.path.exists(buf_path):
-                  os.remove(buf_path)
-              print("webp too big — used jpeg fallback")
-          print("ok")
+          try:
+              im = Image.open(src)
+              # Handle palette/transparent images properly
+              if im.mode in ("P", "RGBA", "LA"):
+                  # Composite onto a solid background (black is fine for car previews)
+                  bg = Image.new("RGB", im.size, (10, 10, 15))
+                  if im.mode == "P":
+                      im = im.convert("RGBA")
+                  bg.paste(im, mask=im.split()[-1] if im.mode in ("RGBA","LA") else None)
+                  im = bg
+              else:
+                  im = im.convert("RGB")
+              # 16:9 cover crop then resize to 1280x720
+              target_ratio = 16 / 9
+              w, h = im.size
+              if w == 0 or h == 0:
+                  raise ValueError(f"Invalid image dimensions: {w}x{h}")
+              cur = w / h
+              if cur > target_ratio:
+                  # too wide — crop sides
+                  new_w = int(h * target_ratio)
+                  left = (w - new_w) // 2
+                  im = im.crop((left, 0, left + new_w, h))
+              else:
+                  # too tall — crop top/bottom
+                  new_h = int(w / target_ratio)
+                  top = (h - new_h) // 2
+                  im = im.crop((0, top, w, top + new_h))
+              im = im.resize((1280, 720), Image.LANCZOS)
+              # Try WebP first; lower quality until ≤100 KB
+              saved = False
+              for q in (90, 80, 72, 65, 58, 50, 40):
+                  buf_path = f"previews/{file_name}.webp"
+                  im.save(buf_path, "WEBP", quality=q, method=6)
+                  sz = os.path.getsize(buf_path)
+                  print(f"  webp q={q} → {sz} bytes")
+                  if sz <= 100 * 1024:
+                      print(f"::notice::WebP saved at q={q} ({sz} bytes)")
+                      saved = True
+                      break
+              if not saved:
+                  # JPEG fallback (much smaller at low quality)
+                  jpg_path = f"previews/{file_name}.jpg"
+                  for q in (85, 75, 65, 55):
+                      im.save(jpg_path, "JPEG", quality=q, optimize=True)
+                      sz = os.path.getsize(jpg_path)
+                      print(f"  jpeg q={q} → {sz} bytes")
+                      if sz <= 100 * 1024:
+                          print(f"::notice::JPEG fallback saved at q={q} ({sz} bytes)")
+                          saved = True
+                          break
+                  # Remove the failed WebP attempt
+                  buf_path = f"previews/{file_name}.webp"
+                  if os.path.exists(buf_path):
+                      os.remove(buf_path)
+              if not saved:
+                  print("::warning::Could not compress preview to ≤100 KB — using best quality anyway")
+              print("ok")
+          except Exception as e:
+              print(f"::warning::Preview conversion failed: {e}")
+              traceback.print_exc()
+              # Don't fail the whole run — preview is non-critical
+              sys.exit(0)
           PY
 
       # ─────────────────────────── 3. upload asset ───────────────────────────
