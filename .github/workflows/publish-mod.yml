@@ -1,0 +1,354 @@
+name: Publish mod (Drive → Releases → mods.json)
+
+# Triggered by the DZST admin panel (Mode A: "Drive link").
+# No PAT needed — uses the auto-issued GITHUB_TOKEN with contents:write.
+#
+# Inputs come from the admin panel's workflow_dispatch REST call:
+#   drive_url   — Google Drive share link (any format gdown understands)
+#   file_name   — final asset file name (e.g. dzst_audi_rs5_2020.rar)
+#   pretty_name — human label for the site
+#   category    — cars | traffic | maps
+#   tag         — release tag (e.g. v1.0, traffic-v1.0, maps-v1.0)
+#   notes       — optional free-form notes
+#
+# Pipeline:
+#   1. Download the file from Drive (gdown, with curl fallback for non-Drive URLs)
+#   2. List the archive and extract the best preview candidate
+#   3. Convert the preview to WebP ≤100 KB (1280×720, 16:9)
+#   4. Upload the archive as a release asset (gh release upload --clobber)
+#   5. Upsert the entry in data/mods.json and commit
+#
+# Failure modes reported back to the admin panel via the run log:
+#   - Drive link not public → gdown exits non-zero
+#   - Archive unreadable → 7z l fails
+#   - No preview found → image: "" (does NOT fail the run)
+
+on:
+  workflow_dispatch:
+    inputs:
+      drive_url:
+        description: "Google Drive share link (or any URL gdown/curl can fetch)"
+        required: true
+        type: string
+      file_name:
+        description: "Final asset file name (e.g. dzst_audi_rs5_2020.rar)"
+        required: true
+        type: string
+      pretty_name:
+        description: "Human label shown on the site"
+        required: true
+        type: string
+      category:
+        description: "cars | traffic | maps"
+        required: true
+        type: choice
+        options:
+          - cars
+          - traffic
+          - maps
+      tag:
+        description: "Release tag (e.g. v1.0, traffic-v1.0, maps-v1.0)"
+        required: true
+        type: string
+      notes:
+        description: "Optional notes (version, credits, install hints)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-mod-${{ inputs.tag }}-${{ inputs.file_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # ─────────────────────────── setup ───────────────────────────
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install gdown pillow
+          # 7z is preinstalled on ubuntu-latest; gh is preinstalled too.
+
+      # ─────────────────────────── 1. download ───────────────────────────
+      - name: Download from Drive
+        id: dl
+        env:
+          DRIVE_URL: ${{ inputs.drive_url }}
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Downloading: $DRIVE_URL → $FILE_NAME"
+          # gdown handles Drive big-file confirm token automatically.
+          if gdown "$DRIVE_URL" -O "$FILE_NAME"; then
+            echo "downloaded=gdown" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::gdown failed; falling back to curl -L (works for non-Drive URLs or public Drive files)"
+            curl -L --fail "$DRIVE_URL" -o "$FILE_NAME"
+            echo "downloaded=curl" >> "$GITHUB_OUTPUT"
+          fi
+          if [ ! -s "$FILE_NAME" ]; then
+            echo "::error::Downloaded file is empty — Drive link may not be public, or the URL is wrong."
+            exit 1
+          fi
+          BYTES=$(stat -c%s "$FILE_NAME")
+          echo "size_bytes=$BYTES" >> "$GITHUB_OUTPUT"
+          echo "::notice::Downloaded $BYTES bytes"
+
+      - name: Format size
+        id: fmt
+        env:
+          BYTES: ${{ steps.dl.outputs.size_bytes }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          b = int(os.environ["BYTES"])
+          mb = b / 1048576
+          if mb >= 1024:
+              s = f"{mb/1024:.1f} GB"
+          elif mb >= 10:
+              s = f"{int(mb)} MB"
+          else:
+              s = f"{mb:.1f} MB"
+          print(f"size_human={s}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"size_human={s}\n")
+          PY
+
+      # ─────────────────────────── 2. preview extract ───────────────────────────
+      - name: Extract preview candidate
+        id: prev
+        env:
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p _extract
+          # List archive contents. 7z handles .rar/.zip/.7z uniformly.
+          7z l "$FILE_NAME" > _listing.txt 2>&1 || true
+          # Priority: ui/preview.* → skins/*/preview.* → ui_car/preview.* → shallowest preview.*
+          # 7z l output lists paths in column 6+ (space-separated). Use awk to grab the path column.
+          PREVIEW_PATH=""
+          for PATTERN in \
+            '^ui/preview\.' \
+            '^skins/[^/]+/preview\.' \
+            '^ui_car/preview\.' \
+            'preview\.'; do
+            HIT=$(awk '/^--/{p=!p; next} p {print $NF}' _listing.txt \
+                   | grep -iE "$PATTERN" \
+                   | head -1 || true)
+            if [ -n "$HIT" ]; then
+              PREVIEW_PATH="$HIT"
+              echo "::notice::Preview candidate: $PREVIEW_PATH (pattern: $PATTERN)"
+              break
+            fi
+          done
+          if [ -z "$PREVIEW_PATH" ]; then
+            echo "::notice::No preview.* found in archive — image will be empty."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Extract ONLY that entry (7z extracts with full path under _extract).
+          7z x "$FILE_NAME" -o_extract "$PREVIEW_PATH" -y > /dev/null
+          EXTRACTED="_extract/$PREVIEW_PATH"
+          if [ ! -f "$EXTRACTED" ]; then
+            echo "::warning::Preview listed but not extractable: $PREVIEW_PATH"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "path=$EXTRACTED" >> "$GITHUB_OUTPUT"
+
+      - name: Convert preview to WebP (1280×720, ≤100 KB)
+        id: webp
+        if: steps.prev.outputs.found == 'true'
+        env:
+          SRC: ${{ steps.prev.outputs.path }}
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from PIL import Image
+          src = os.environ["SRC"]
+          file_name = os.environ["FILE_NAME"]
+          out_path = f"previews/{file_name}.webp"
+          os.makedirs("previews", exist_ok=True)
+          im = Image.open(src).convert("RGB")
+          # 16:9 cover crop then resize to 1280x720
+          target_ratio = 16 / 9
+          w, h = im.size
+          cur = w / h
+          if cur > target_ratio:
+              # too wide — crop sides
+              new_w = int(h * target_ratio)
+              left = (w - new_w) // 2
+              im = im.crop((left, 0, left + new_w, h))
+          else:
+              # too tall — crop top/bottom
+              new_h = int(w / target_ratio)
+              top = (h - new_h) // 2
+              im = im.crop((0, top, w, top + new_h))
+          im = im.resize((1280, 720), Image.LANCZOS)
+          # Try WebP first; lower quality until ≤100 KB
+          for q in (90, 80, 72, 65, 58, 50):
+              buf_path = f"previews/{file_name}.webp"
+              im.save(buf_path, "WEBP", quality=q, method=6)
+              if os.path.getsize(buf_path) <= 100 * 1024:
+                  print(f"webp ok q={q} size={os.path.getsize(buf_path)}B")
+                  break
+          else:
+              # JPEG fallback
+              jpg_path = f"previews/{file_name}.jpg"
+              im.save(jpg_path, "JPEG", quality=80, optimize=True)
+              # Remove the failed WebP attempt
+              if os.path.exists(buf_path):
+                  os.remove(buf_path)
+              print("webp too big — used jpeg fallback")
+          print("ok")
+          PY
+
+      # ─────────────────────────── 3. upload asset ───────────────────────────
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          CATEGORY: ${{ inputs.category }}
+        run: |
+          set -euo pipefail
+          # gh release create exits non-zero if the tag exists already — that's fine.
+          if gh release create "$TAG" \
+              --title "DZST $TAG" \
+              --notes "DZST $CATEGORY mods — direct downloads, Content Manager ready." \
+              --target main 2>/dev/null || true; then
+            echo "::notice::Release $TAG ensured."
+          else
+            echo "::notice::Release $TAG already exists — using it."
+          fi
+
+      - name: Upload asset to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          set -euo pipefail
+          # --clobber replaces an existing asset with the same name (idempotent re-upload).
+          gh release upload "$TAG" "$FILE_NAME" --clobber
+          echo "::notice::Asset uploaded: $FILE_NAME → $TAG"
+
+      # ─────────────────────────── 4. update mods.json ───────────────────────────
+      - name: Upsert mods.json entry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          FILE_NAME: ${{ inputs.file_name }}
+          PRETTY_NAME: ${{ inputs.pretty_name }}
+          CATEGORY: ${{ inputs.category }}
+          SIZE_HUMAN: ${{ steps.fmt.outputs.size_human }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          python - <<'PY'
+          import json, os, datetime, base64, sys
+          repo = os.environ.get("GITHUB_REPOSITORY", "NOVENOM06/assetto-mods")
+          tag = os.environ["TAG"]
+          file_name = os.environ["FILE_NAME"]
+          pretty_name = os.environ["PRETTY_NAME"]
+          category = os.environ["CATEGORY"]
+          size_human = os.environ["SIZE_HUMAN"]
+          notes = os.environ["NOTES"]
+          today = datetime.date.today().isoformat()
+          asset_url = f"https://github.com/{repo}/releases/download/{tag}/{file_name}"
+          # Preview served via jsDelivr (CDN + immutable cache)
+          webp_path = f"previews/{file_name}.webp"
+          jpg_path = f"previews/{file_name}.jpg"
+          if os.path.exists(webp_path):
+              image_url = f"https://cdn.jsdelivr.net/gh/{repo}@main/{webp_path}"
+          elif os.path.exists(jpg_path):
+              image_url = f"https://cdn.jsdelivr.net/gh/{repo}@main/{jpg_path}"
+          else:
+              image_url = ""
+          entry = {
+              "prettyName": pretty_name,
+              "fileName": file_name,
+              "category": category,
+              "size": size_human,
+              "date": today,
+              "url": asset_url,
+              "image": image_url,
+          }
+          if notes:
+              entry["notes"] = notes
+          # Load existing mods.json (it exists in the checkout)
+          path = "data/mods.json"
+          with open(path, "r", encoding="utf-8") as f:
+              raw = f.read()
+          try:
+              mods = json.loads(raw)
+              if not isinstance(mods, list):
+                  mods = []
+          except Exception:
+              mods = []
+          # Upsert by fileName
+          mods = [m for m in mods if m.get("fileName") != file_name]
+          mods.append(entry)
+          # Sort: cars → traffic → maps, then alphabetical — keep stable order
+          cat_order = {"cars": 0, "traffic": 1, "maps": 2}
+          mods.sort(key=lambda m: (cat_order.get(str(m.get("category", "")).lower(), 99),
+                                    (m.get("prettyName") or "").lower()))
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(mods, f, indent=2, ensure_ascii=False)
+              f.write("\n")
+          print("upserted:", json.dumps(entry, ensure_ascii=False))
+          PY
+
+      - name: Commit mods.json + preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILE_NAME: ${{ inputs.file_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/mods.json
+          # Preview may or may not exist
+          if [ -f "previews/${FILE_NAME}.webp" ]; then
+            git add "previews/${FILE_NAME}.webp"
+          elif [ -f "previews/${FILE_NAME}.jpg" ]; then
+            git add "previews/${FILE_NAME}.jpg"
+          fi
+          # Commit only if something changed
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish mod: ${{ inputs.pretty_name }}"
+            git push
+            echo "::notice::Committed mods.json + preview."
+          else
+            echo "::notice::Nothing to commit (mods.json unchanged)."
+          fi
+
+      # ─────────────────────────── 5. summary ───────────────────────────
+      - name: Summary
+        env:
+          TAG: ${{ inputs.tag }}
+          FILE_NAME: ${{ inputs.file_name }}
+          SIZE_HUMAN: ${{ steps.fmt.outputs.size_human }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${FILE_NAME}"
+          echo "::notice::Published: $PRETTY_NAME ($SIZE_HUMAN) → $URL"
+          echo "### ✅ Published ${{ inputs.pretty_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Size:** $SIZE_HUMAN" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Direct URL:** $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Tag:** \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Run logs:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
