@@ -304,18 +304,5 @@
     "date": "2025-03-15",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/traffic-v1.0/traffic_ELMORDJENE_DZST.rar"
-  },
-  {
-    "prettyName": "traffic traffic_Brand_LeZed2 2018",
-    "fileName": "traffic_Brand_LeZed2.zip",
-    "category": "traffic",
-    "size": "41 MB",
-    "date": "2026-09-05",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/traffic-v1.0/traffic_Brand_LeZed2.zip",
-    "image": "https://cdn.jsdelivr.net/gh/NOVENOM06/assetto-mods@main/previews/traffic_Brand_LeZed2.zip.webp",
-    "tags": [
-      "Traffic Car"
-    ],
-    "notes": "Brand: traffic · Author: LeZed · Version: 1.3"
   }
 ]
