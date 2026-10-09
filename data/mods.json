@@ -99,6 +99,15 @@
     "image": "https://cdn.jsdelivr.net/gh/NOVENOM06/assetto-mods@main/previews/DZST_Seat_cupra_2016_v2.zip.webp"
   },
   {
+    "prettyName": "DZST Seat Cupra 2016 V2",
+    "fileName": "DZST_Seat_cupra_2016_v2.rar",
+    "category": "cars",
+    "size": "74 MB",
+    "date": "2026-10-09",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_Seat_cupra_2016_v2.rar",
+    "image": "https://cdn.jsdelivr.net/gh/NOVENOM06/assetto-mods@main/previews/DZST_Seat_cupra_2016_v2.rar.webp"
+  },
+  {
     "prettyName": "Fiat Doblo 2025",
     "fileName": "DZST_Fiat_Doblo_2025.rar",
     "category": "cars",
@@ -187,15 +196,6 @@
     "date": "2025-04-11",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/rvz_bmw_m_1000_rr_2023.rar"
-  },
-  {
-    "prettyName": "Seat Cupra 2016 V2",
-    "fileName": "DZST_Seat_cupra_2016_v2.rar",
-    "category": "cars",
-    "size": "76 MB",
-    "date": "2024-11-11",
-    "image": "",
-    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/v1.0/DZST_Seat_cupra_2016_v2.rar"
   },
   {
     "prettyName": "Seat Ibiza Stage1",
