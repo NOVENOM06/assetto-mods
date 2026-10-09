@@ -322,5 +322,14 @@
     "date": "2025-03-15",
     "image": "",
     "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/traffic-v1.0/traffic_ELMORDJENE_DZST.rar"
+  },
+  {
+    "prettyName": "La Canyons",
+    "fileName": "la_canyons.zip",
+    "category": "maps",
+    "size": "1.0 GB",
+    "date": "2026-10-09",
+    "url": "https://github.com/NOVENOM06/assetto-mods/releases/download/maps-v1.0/la_canyons.zip",
+    "image": "https://cdn.jsdelivr.net/gh/NOVENOM06/assetto-mods@main/previews/la_canyons.zip.webp"
   }
 ]
